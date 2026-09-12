@@ -1,0 +1,6 @@
+github.com/beevik/guid v1.0.0 h1:XhTlrl9h5+TlkB7MB3SBwAm2+ZdFE62O0D+g7LDFqqI=
+github.com/beevik/guid v1.0.0/go.mod h1:FyB4y08P/8c0J0xhRHR6xVjdXIpGDwpMXzmGV6vWDj4=
+github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=
+github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
+golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
+golang.org/x/sync v0.22.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
