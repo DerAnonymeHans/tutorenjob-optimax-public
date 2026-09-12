@@ -1,145 +1,187 @@
+<!-- @format -->
+
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>WebSocket test client</title>
-    <style>
-        body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 40rem; }
-        #snakeCanvas {
+   <head>
+      <meta charset="utf-8" />
+      <title>WebSocket test client</title>
+      <style>
+         body {
+            font:
+               14px/1.5 system-ui,
+               sans-serif;
+            margin: 2rem auto;
+            max-width: 40rem;
+         }
+         #snakeCanvas {
             border: 2px green solid;
-        }
-    </style>
-</head>
-<body>
-<h1>Snake</h1>
-<canvas id="snakeCanvas"></canvas>
+         }
+      </style>
+   </head>
+   <body>
+      <h1>Snake</h1>
+      <canvas id="snakeCanvas"></canvas>
 
-<script>
-    const URL = "ws://192.168.178.122:8080/ws"
-    const CELL_SIZE_PX = 5
-    const PLAYER_COLORS = new Set(["#656509", "#980000", "#d4920c", "#0985d9", "#2a7f00", "#033659"])
-    
-    const ws = new WebSocket(URL);
-    ws.onopen = () => console.log("open: " + URL);
-    ws.onmessage = onMessage
-    ws.onerror = () => console.log("error");
-    ws.onclose = (ev) => console.log(`close: code=${ev.code} reason=${ev.reason || "(none)"}`);
-    
-    const canvasEl = document.getElementById("snakeCanvas")
-    const ctx = canvasEl.getContext("2d")
-    
-    const players = []
-    let height = 0
-    let width = 0;
-    
-    function onMessage(event) {
-        const payload = JSON.parse(event.data)
-        console.log(payload)
-        height = payload["Height"]
-        width = payload["Width"]
-        canvasEl.width = width * CELL_SIZE_PX 
-        canvasEl.height = height * CELL_SIZE_PX
-        
-        for (const payloadPlayer of payload["Players"]) {
-            let player = players.find(p => p.playerId === payloadPlayer["PlayerId"])
-            if (!player) {
-                player = createPlayer(payloadPlayer);
+      <script>
+         const URL = "ws://192.168.178.122:8080/ws";
+         const CELL_SIZE_PX = 5;
+         const PLAYER_COLORS = new Set([
+            "#656509",
+            "#980000",
+            "#d4920c",
+            "#0985d9",
+            "#2a7f00",
+            "#033659",
+         ]);
+
+         const ws = new WebSocket(URL);
+         ws.onopen = () => console.log("open: " + URL);
+         ws.onmessage = onMessage;
+         ws.onerror = () => console.log("error");
+         ws.onclose = (ev) => console.log(`close: code=${ev.code} reason=${ev.reason || "(none)"}`);
+
+         const canvasEl = document.getElementById("snakeCanvas");
+         const ctx = canvasEl.getContext("2d");
+
+         const players = [];
+         let height = 0;
+         let width = 0;
+
+         function onMessage(event) {
+            const payload = JSON.parse(event.data);
+            console.log(payload);
+            height = payload["Height"];
+            width = payload["Width"];
+            canvasEl.width = width * CELL_SIZE_PX;
+            canvasEl.height = height * CELL_SIZE_PX;
+
+            for (const payloadPlayer of payload["Players"]) {
+               const player = players.find((p) => p.playerId === payloadPlayer["PlayerId"]);
+               if (!player) {
+                  createPlayer(payloadPlayer);
+               } else {
+                  player.update(
+                     playerPayloadToHeadPosition(payloadPlayer),
+                     payloadPlayer["Length"],
+                  );
+               }
             }
-            player.update(playerPayloadToHeadPosition(payloadPlayer), payloadPlayer["Length"])
-        }
-        
-        for (const idx in players){
-            const player = players[idx]
-            let payloadPlayer = payload["Players"].find(p => p["PlayerId"] === player.playerId)
-            if (!payloadPlayer) {
-                players.splice(parseInt(idx), 1);
+
+            for (const idx in players) {
+               const player = players[idx];
+               let payloadPlayer = payload["Players"].find(
+                  (p) => p["PlayerId"] === player.playerId,
+               );
+               if (!payloadPlayer) {
+                  players.splice(parseInt(idx), 1);
+               }
             }
-        }
-        
-        ctx.clearRect(0, 0, canvasEl.width, canvasEl.height)
-        for (const player of players){
-            player.draw(ctx);
-        }
-        ctx.strokeStyle = "green"
-        ctx.strokeRect(payload["FoodPosition"]["X"] * CELL_SIZE_PX, (height - payload["FoodPosition"]["Y"] - 1) * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX)
-    }
-    
-    function createPlayer(payloadPlayer){
-        const usedColorsSet = new Set(players.map(p => p.color))
-        const freeColors = PLAYER_COLORS.difference(usedColorsSet)
-        const newPlayer = new Player(payloadPlayer["PlayerId"], playerPayloadToHeadPosition(payloadPlayer), freeColors.values().next().value)
-        players.push(newPlayer)
-        return newPlayer;
-    }
-    
-    function playerPayloadToHeadPosition(payloadPlayer) {
-        const headPos = payloadPlayer["HeadPosition"]
-        return new Point2d(headPos["X"], headPos["Y"])
-    }
-    
-    class Player {
-        constructor(playerId, headPos, color) {
-            this.playerId = playerId;
-            this.tailPositions = [headPos]
-            this.color = color;
-            console.log(this.color)
-        }
-        
-        update(newHeadPos, newLength){
-            const hasGrown = newLength > this.tailPositions.length
-            this.tailPositions.splice(0, 0, newHeadPos)
-            if (!hasGrown){
-                this.tailPositions.splice(this.tailPositions.length - 1, 1)
+
+            ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+            for (const player of players) {
+               player.draw(ctx);
             }
-        }
-        
-        draw(ctx) {
-            for (const idx in this.tailPositions){
-                const tailPos = this.tailPositions[idx]
-                ctx.fillStyle = this.color;
-                ctx.fillRect(tailPos.x * CELL_SIZE_PX, (height - tailPos.y - 1) * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX)
-                if (idx == 0) {
-                    console.log("stroke")
-                    ctx.strokeStyle = "#000000";               
-                    ctx.strokeRect(tailPos.x * CELL_SIZE_PX, (height - tailPos.y - 1) * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX)
-                }
+            ctx.strokeStyle = "green";
+            ctx.strokeRect(
+               payload["FoodPosition"]["X"] * CELL_SIZE_PX,
+               (height - payload["FoodPosition"]["Y"] - 1) * CELL_SIZE_PX,
+               CELL_SIZE_PX,
+               CELL_SIZE_PX,
+            );
+         }
+
+         function createPlayer(payloadPlayer) {
+            const usedColorsSet = new Set(players.map((p) => p.color));
+            const freeColors = PLAYER_COLORS.difference(usedColorsSet);
+            const newPlayer = new Player(
+               payloadPlayer["PlayerId"],
+               playerPayloadToTailPositions(payloadPlayer),
+               freeColors.values().next().value,
+            );
+            players.push(newPlayer);
+            return newPlayer;
+         }
+
+         function playerPayloadToTailPositions(payloadPlayer) {
+            const tailPositions = payloadPlayer["TailPositions"];
+            return tailPositions.map((pos) => new Point2d(pos["X"], pos["Y"]));
+         }
+
+         function playerPayloadToHeadPosition(payloadPlayer) {
+            const headPos = payloadPlayer["HeadPosition"];
+            return new Point2d(headPos["X"], headPos["Y"]);
+         }
+
+         class Player {
+            constructor(playerId, tailPositions, color) {
+               this.playerId = playerId;
+               this.tailPositions = tailPositions;
+               this.color = color;
+               console.log(this.color);
             }
-        }
-    }
-    
-    class Point2d {
-        constructor(x, y) {
-            this.x = x;
-            this.y = y;
-        }
-    }
 
-    window.document.addEventListener("keydown", (event) => {
-        if (players.length === 0 || ws.readyState !== 1)
-            return;
+            update(newHeadPos, newLength) {
+               const hasGrown = newLength > this.tailPositions.length;
+               this.tailPositions.splice(0, 0, newHeadPos);
+               if (!hasGrown) {
+                  this.tailPositions.splice(this.tailPositions.length - 1, 1);
+               }
+            }
 
-        let command = null;
-        switch (event.key){
-            case "ArrowRight":
-                command = "RIGHT"
-                break
-            case "ArrowLeft":
-                command = "LEFT"
-                break
-            case "ArrowUp":
-                command = "UP"
-                break
-            case "ArrowDown":
-                command = "DOWN"
-                break
-        }
+            draw(ctx) {
+               for (const idx in this.tailPositions) {
+                  const tailPos = this.tailPositions[idx];
+                  ctx.fillStyle = this.color;
+                  ctx.fillRect(
+                     tailPos.x * CELL_SIZE_PX,
+                     (height - tailPos.y - 1) * CELL_SIZE_PX,
+                     CELL_SIZE_PX,
+                     CELL_SIZE_PX,
+                  );
+                  if (idx == 0) {
+                     console.log("stroke");
+                     ctx.strokeStyle = "#000000";
+                     ctx.strokeRect(
+                        tailPos.x * CELL_SIZE_PX,
+                        (height - tailPos.y - 1) * CELL_SIZE_PX,
+                        CELL_SIZE_PX,
+                        CELL_SIZE_PX,
+                     );
+                  }
+               }
+            }
+         }
 
-        if (!command)
-            return;
+         class Point2d {
+            constructor(x, y) {
+               this.x = x;
+               this.y = y;
+            }
+         }
 
-        ws.send(command)
+         window.document.addEventListener("keydown", (event) => {
+            if (players.length === 0 || ws.readyState !== 1) return;
 
-    })
-</script>
-</body>
+            let command = null;
+            switch (event.key) {
+               case "ArrowRight":
+                  command = "RIGHT";
+                  break;
+               case "ArrowLeft":
+                  command = "LEFT";
+                  break;
+               case "ArrowUp":
+                  command = "UP";
+                  break;
+               case "ArrowDown":
+                  command = "DOWN";
+                  break;
+            }
+
+            if (!command) return;
+
+            ws.send(command);
+         });
+      </script>
+   </body>
 </html>

@@ -40,20 +40,32 @@ type player struct {
 	dead            bool
 }
 
+// the payload object that is sent to every player (connection)
 type payload struct {
+	// the players own id
 	PlayerId     string
+	// whether the player died
 	Dead         bool
+	// the current tick (incrementing)
 	Tick         int
+	// width of the game field
 	Width        int
+	// height of the game field
 	Height       int
 	FoodPosition vec2d
 	Players      []playerPayload
 }
 
+// the object with information about every player
 type playerPayload struct {
-	PlayerId     string
-	HeadPosition vec2d
-	Length       int
+	// id of the player
+	PlayerId      string
+	// position of the head
+	HeadPosition  vec2d
+	// positions of the tail (including the head)
+	TailPositions []vec2d
+	// length of the tail (including head)
+	Length        int
 }
 
 var CMD_LEFT = "LEFT"
@@ -74,6 +86,7 @@ func CreateServer(width int, height int, ticker *time.Ticker) *SnakeServer {
 }
 
 func (s *SnakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// accept a connection
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	})
@@ -83,9 +96,9 @@ func (s *SnakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	// An errgroup manages both goroutines; if one fails, it cancels the shared context
 	g, ctx := errgroup.WithContext(r.Context())
 
+	// create the player and append it to the player array
 	player, err := s.createNewPlayer(conn)
 	if err != nil {
 		conn.Write(ctx, websocket.MessageText, []byte(err.Error()))
@@ -93,11 +106,11 @@ func (s *SnakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.players = append(s.players, &player)
 
+	// start the read loop for the player
 	g.Go(func() error {
 		return s.readLoop(ctx, conn, &player)
 	})
 
-	// Wait until either loop terminates (e.g., client disconnects or error occurs)
 	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		if websocket.CloseStatus(err) != websocket.StatusNormalClosure &&
 			websocket.CloseStatus(err) != websocket.StatusGoingAway {
@@ -106,25 +119,27 @@ func (s *SnakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// readLoop blocks on conn.Read, unblocking immediately when a new message arrives.
+// one read loop for each player
 func (s *SnakeServer) readLoop(ctx context.Context, conn *websocket.Conn, player *player) error {
 	for {
+		// read the message sent from the player
 		messageType, payload, err := conn.Read(ctx)
 		if err != nil {
 			return fmt.Errorf("read error: %w", err)
 		}
 
+		// prohibits changing commands during the write loop
 		if !s.acceptingCommands {
 			continue
 		}
 
 		fmt.Printf("Received message (%v): %s\n", messageType, string(payload))
 
+		// Validate the command and skip if invalid
 		message := string(payload)
 		if message != CMD_DOWN && message != CMD_UP && message != CMD_RIGHT && message != CMD_LEFT {
 			continue
 		}
-
 		if (message == CMD_UP && player.previousCommand == CMD_DOWN) ||
 			(message == CMD_DOWN && player.previousCommand == CMD_UP) ||
 			(message == CMD_RIGHT && player.previousCommand == CMD_LEFT) ||
@@ -136,6 +151,7 @@ func (s *SnakeServer) readLoop(ctx context.Context, conn *websocket.Conn, player
 	}
 }
 
+// one write loop for all players
 func (s *SnakeServer) StartWriteLoop(ctx context.Context) error {
 	fmt.Println("StartWriteLoop")
 	for {
@@ -147,25 +163,31 @@ func (s *SnakeServer) StartWriteLoop(ctx context.Context) error {
 			s.acceptingCommands = false
 			fmt.Println("Write loop at tick", s.currentTick, "at time", t.String(), "- player count: ", len(s.players))
 
+			// update each players position based on their current command
 			for _, player := range s.players {
 				s.updatePlayerPosition(player)
 			}
 
+			// update the food - if it is eaten, a new one spawns and the player that ate it gets longer
 			s.updateFood()
 
+			// create the payload for each player
 			var playerPayloads []playerPayload
 			for _, player := range s.players {
+				// check whether the player died
 				s.updateIsDead(player)
 				if player.dead {
 					continue
 				}
 				playerPayloads = append(playerPayloads, playerPayload{
-					player.id.String(),
-					player.tailPositions[0],
-					len(player.tailPositions),
+					PlayerId:      player.id.String(),
+					HeadPosition:  player.tailPositions[0],
+					TailPositions: slices.Clone(player.tailPositions),
+					Length:        len(player.tailPositions),
 				})
 			}
 
+			// send a payload to each player
 			for _, player := range s.players {
 				payload := payload{
 					PlayerId:     player.id.String(),
@@ -191,6 +213,7 @@ func (s *SnakeServer) StartWriteLoop(ctx context.Context) error {
 					fmt.Println(err.Error())
 				}
 
+				// close the connection if the player has died
 				if player.dead {
 					err := player.conn.Close(websocket.StatusTryAgainLater, "You are dead.")
 					if err != nil {
@@ -208,7 +231,9 @@ func (s *SnakeServer) StartWriteLoop(ctx context.Context) error {
 	}
 }
 
+// update each players tail positions
 func (s *SnakeServer) updatePlayerPosition(player *player) {
+	// the new head positions is the old head position shifted by the command
 	oldHead := player.tailPositions[0]
 	newHead := vec2d{oldHead.X, oldHead.Y}
 	fmt.Println("Update player position with command", player.command)
@@ -222,10 +247,12 @@ func (s *SnakeServer) updatePlayerPosition(player *player) {
 	case CMD_LEFT:
 		newHead.X--
 	}
+	// save the command in previous command to validate new commands in the read loop
 	player.previousCommand = player.command
+
+	// wrap around at game field borders
 	newHead.X = newHead.X % s.Width
 	newHead.Y = newHead.Y % s.Height
-
 	if newHead.X < 0 {
 		newHead.X = s.Width - 1
 	}
@@ -233,17 +260,20 @@ func (s *SnakeServer) updatePlayerPosition(player *player) {
 		newHead.Y = s.Height - 1
 	}
 
-	// set the growth sport to where the last tail element was
+	// set the growth spot (used when food is eaten) to where the last tail element was
 	player.growthSpot = player.tailPositions[len(player.tailPositions)-1]
 
 	// add head to start of array and remove the last element
 	player.tailPositions = append([]vec2d{newHead}, player.tailPositions[:len(player.tailPositions)-1]...)
 }
 
+// check whether the players head is at an already occupied cell. If so -> dead
 func (s *SnakeServer) updateIsDead(player *player) {
 	head := player.tailPositions[0]
+	// loop through all players and all tail positions of each player
 	for _, p := range s.players {
 		for tailIdx, t := range p.tailPositions {
+			// skip the own head (own head is of course always on the same cell as the own head)
 			if p.id.String() == player.id.String() && tailIdx == 0 {
 				continue
 			}
@@ -255,7 +285,9 @@ func (s *SnakeServer) updateIsDead(player *player) {
 	}
 }
 
+// if a players head is on the food, this player gets longer (grows onto the growth spot) and the food reappears at a random position
 func (s *SnakeServer) updateFood() {
+	// check which players are on the food
 	var playersOnFood []*player
 	for _, player := range s.players {
 		head := player.tailPositions[0]
@@ -264,16 +296,21 @@ func (s *SnakeServer) updateFood() {
 		}
 	}
 
+	// 0 -> no player on the food
+	// > 1 -> multiple players on the food -> they have collided and will die, so the food stays
 	if len(playersOnFood) != 1 {
 		return
 	}
 
+	// grow the tail on the growth spot
 	player := playersOnFood[0]
 	player.tailPositions = append(player.tailPositions, player.growthSpot)
 
+	// regenerate food position
 	s.foodPos = vec2d{rand.Intn(s.Width), rand.Intn(s.Height)}
 }
 
+// creates a new player at a random position (not directly immediate to another player) with a default command
 func (s *SnakeServer) createNewPlayer(conn *websocket.Conn) (player, error) {
 	startCell, err := s.getStartCellForNewPlayer(2)
 	if err != nil {
@@ -295,7 +332,9 @@ func (s *SnakeServer) createNewPlayer(conn *websocket.Conn) (player, error) {
 	return p, nil
 }
 
+// get a possible random start cell for a player that has at least minSpace clearance to other players
 func (s *SnakeServer) getStartCellForNewPlayer(minSpace int) (vec2d, error) {
+	// all cells from -minSpace to minSpace around another players tail are blocked
 	blockedCells := map[vec2d]bool{}
 	for _, player := range s.players {
 		for _, tailPosition := range player.tailPositions {
@@ -307,6 +346,7 @@ func (s *SnakeServer) getStartCellForNewPlayer(minSpace int) (vec2d, error) {
 		}
 	}
 
+	// get all available cells that are not blocked
 	var availableCells []vec2d
 	for x := 0; x < s.Width; x++ {
 		for y := 0; y < s.Height; y++ {
@@ -317,6 +357,7 @@ func (s *SnakeServer) getStartCellForNewPlayer(minSpace int) (vec2d, error) {
 		}
 	}
 
+	// if no cells are available the player can not spawn
 	if len(availableCells) == 0 {
 		return vec2d{}, errors.New("no available cells for a new player")
 	}
