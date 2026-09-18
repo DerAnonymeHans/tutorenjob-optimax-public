@@ -34,7 +34,7 @@ func run() error {
 	log.Printf("listening on ws://%v", listener.Addr())
 
 	mux := http.NewServeMux()
-	snakeServer := CreateServer(20, 20, time.NewTicker(time.Millisecond*200))
+	snakeServer := CreateServer(30, 30, time.NewTicker(time.Millisecond*300))
 	mux.Handle("/ws", snakeServer)
 	mux.Handle("/", http.FileServer(http.Dir(".")))
 
