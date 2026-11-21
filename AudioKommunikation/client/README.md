@@ -21,7 +21,12 @@ selben Ordner wie `audio.py` liegen.
 
 (Mit VS Code geht es auch: einfach eine neue `.ipynb`-Datei in diesem Ordner anlegen.)
 
-## 3. Erste Zelle
+## 3. Aufgaben
+
+Die Aufgaben für Woche 1 stehen in `Woche_1_Senden.ipynb`, einfach in Jupyter öffnen.
+Für eigene Versuche könnt ihr auch ein neues Notebook anlegen:
+
+## 4. Erste Zelle
 
 ```python
 import numpy as np
@@ -32,7 +37,7 @@ rate = audio.samplerate()
 print(rate)
 ```
 
-## 4. Ausprobieren
+## 5. Ausprobieren
 
 ```python
 # 0,5 Sekunden Ton mit 1000 Hz
@@ -58,6 +63,9 @@ audio.plot_spectrogram(samples, fmax=5000)
 | `audio.plot(samples, start_ms=…, end_ms=…)` | Signal über der Zeit, optional nur ein Ausschnitt |
 | `audio.plot_spectrum(samples, fmax=…, db=False)` | welche Frequenzen wie stark vorkommen (oben) und mit welcher Phase (unten) |
 | `audio.plot_spectrogram(samples, fmax=…)` | Frequenzen über der Zeit |
+| `audio.iq(samples)` | macht aus den Samples komplexe IQ-Werte (I = Signal, Q = um 90° verschoben) |
+| `audio.plot_amplitude_phase(signal)` | Amplitude und Phase des Drehzeigers über der Zeit |
+| `audio.plot_iq(signal, symbol_ms=…)` | IQ-Diagramm: jedes Sample in der komplexen Ebene, Farbe = Zeit; nimmt auch komplexe Werte |
 
 Senden und gleichzeitig aufnehmen (zum Testen der eigenen Übertragung):
 

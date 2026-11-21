@@ -11,6 +11,7 @@ Diese Datei neben dein eigenes Notebook legen und so benutzen:
     audio.plot(samples)                            # Signal über der Zeit
     audio.plot_spectrum(samples)                   # welche Frequenzen stecken drin?
     audio.plot_spectrogram(samples)                # Frequenzen über der Zeit
+    audio.plot_iq(samples)                         # jedes Sample in der komplexen Ebene
 
 Samples sind Zahlen zwischen -1 und 1. Pro Sekunde braucht man
 audio.samplerate() Samples (meist 48000).
@@ -109,6 +110,21 @@ def plot(samples, rate=None, start_ms=None, end_ms=None, title=None):
     plt.show()
 
 
+def _spectrum(x, rate):
+    """FFT mit Hann-Fenster. Liefert Frequenzen, komplexe Werte (Betrag =
+    Amplitude, Winkel = Phase) und eine Maske für die Spitzen."""
+    window = np.hanning(len(x))
+    values = 2 * np.fft.rfft(x * window) / window.sum()
+    freqs = np.fft.rfftfreq(len(x), 1 / rate)
+    amplitude = np.abs(values)
+    # Spitzen: mindestens so hoch wie beide Nachbarn und nicht zu leise
+    # (5 % der größten: liegt über den Nebenspitzen des Hann-Fensters, ca. 3 %)
+    padded = np.concatenate(([0], amplitude, [0]))
+    peaks = ((amplitude >= padded[:-2]) & (amplitude >= padded[2:])
+             & (amplitude > 0.05 * amplitude.max()))
+    return freqs, values, peaks
+
+
 def plot_spectrum(samples, rate=None, fmin=0, fmax=None, db=False, title=None):
     """Zeichnet, welche Frequenzen im Signal stecken (FFT):
     oben wie stark (Amplitude), unten mit welcher Phase.
@@ -121,20 +137,14 @@ def plot_spectrum(samples, rate=None, fmin=0, fmax=None, db=False, title=None):
     sin ergibt -90°. Genau stimmt sie nur, wenn eine ganze Zahl von
     Schwingungen in die Aufnahme passt (Frequenz = Vielfaches von
     rate / len(samples)). Gezeichnet wird sie nur an den Spitzen des
-    Spektrums (über 1 % der größten Amplitude) – beim Rauschen und an den
+    Spektrums (über 5 % der größten Amplitude) – beim Rauschen und an den
     Flanken einer Spitze wäre der Wert nicht aussagekräftig.
     """
     rate = _rate(rate)
     x = np.asarray(samples, dtype=float)
-    window = np.hanning(len(x))
-    spectrum = np.fft.rfft(x * window)
-    amplitude = 2 * np.abs(spectrum) / window.sum()
-    phase = np.degrees(np.angle(spectrum))
-    freqs = np.fft.rfftfreq(len(x), 1 / rate)
-    # Spitzen: mindestens so hoch wie beide Nachbarn und nicht zu leise
-    padded = np.concatenate(([0], amplitude, [0]))
-    peaks = ((amplitude >= padded[:-2]) & (amplitude >= padded[2:])
-             & (amplitude > 0.01 * amplitude.max()))
+    freqs, values, peaks = _spectrum(x, rate)
+    amplitude = np.abs(values)
+    phase = np.degrees(np.angle(values))
 
     fig, (ax_amp, ax_phase) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     if db:
@@ -169,6 +179,9 @@ def plot_spectrogram(samples, rate=None, fmin=0, fmax=None, title=None):
     fig, ax = plt.subplots(figsize=(10, 4))
     _, _, _, image = ax.specgram(x, NFFT=nfft, Fs=rate, noverlap=nfft * 3 // 4,
                                  cmap="magma", scale="dB")
+    # Farbskala: 100 dB unter dem lautesten Wert (sonst geht der Kontrast verloren)
+    top = image.get_clim()[1]
+    image.set_clim(top - 100, top)
     # Zeitachse in ms statt s
     image.set_extent([e * 1000 if k < 2 else e for k, e in enumerate(image.get_extent())])
     ax.set_xlim(0, len(x) * 1000 / rate)
@@ -177,6 +190,98 @@ def plot_spectrogram(samples, rate=None, fmin=0, fmax=None, title=None):
     ax.set_ylabel("Frequenz [Hz]")
     ax.set_title(title or "Spektrogramm")
     fig.colorbar(image, ax=ax, label="Stärke [dB]")
+    fig.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------- IQ
+
+def iq(samples):
+    """Macht aus den (reellen) Samples komplexe IQ-Werte, einen pro Sample.
+
+    I (Realteil) ist das Signal selbst, Q (Imaginärteil) dasselbe Signal um
+    90° verschoben (Hilbert-Transformation). Aus A·cos(2π·f·t + φ) wird so
+    A·e^(j(2π·f·t + φ)): ein Zeiger der Länge A, der sich f-mal pro Sekunde
+    im Kreis dreht.
+
+    Phase korrigieren: mit np.exp(-2j * np.pi * f * t) multiplizieren, dann
+    bleibt A·e^(jφ) stehen (cos -> 0°, sin -> -90°).
+    """
+    from scipy.signal import hilbert
+    return hilbert(np.asarray(samples, dtype=float))
+
+
+def plot_amplitude_phase(signal, rate=None, title=None):
+    """Zeichnet Amplitude (Betrag) und Phase (Winkel) des Drehzeigers über der Zeit.
+
+    `signal` darf reell sein (dann wird erst audio.iq() angewendet) oder
+    schon komplex. Die Phase wird zwischen -180° und 180° gezeigt: läuft sie
+    darüber hinaus, springt sie zurück (Sägezahn).
+    """
+    rate = _rate(rate)
+    z = np.asarray(signal)
+    if not np.iscomplexobj(z):
+        z = iq(z)
+    t_ms = np.arange(len(z)) * 1000 / rate
+
+    fig, (ax_amp, ax_phase) = plt.subplots(2, 1, figsize=(10, 5), sharex=True)
+    ax_amp.plot(t_ms, np.abs(z))
+    ax_amp.set_ylabel("Amplitude")
+    ax_amp.set_ylim(0, 1.15 * max(np.abs(z).max() if len(z) else 0, 1e-3))
+    ax_amp.set_title(title or "Amplitude und Phase")
+    ax_phase.plot(t_ms, np.degrees(np.angle(z)), ".", markersize=2)
+    ax_phase.set_ylim(-200, 200)
+    ax_phase.set_yticks([-180, -90, 0, 90, 180])
+    ax_phase.set_ylabel("Phase [°]")
+    ax_phase.set_xlabel("Zeit [ms]")
+    for ax in (ax_amp, ax_phase):
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    plt.show()
+
+
+def plot_iq(signal, rate=None, symbol_ms=None, title=None):
+    """IQ-Diagramm: jedes Sample als Punkt in der komplexen Ebene,
+    Abstand vom Ursprung = Amplitude, Winkel = Phase, Farbe = Zeit.
+
+    `signal` darf reell sein (dann wird erst audio.iq() angewendet) oder
+    schon komplex, z.B. nach einer eigenen Phasenkorrektur:
+
+        z = audio.iq(samples)
+        t = np.arange(len(z)) / rate
+        audio.plot_iq(z * np.exp(-2j * np.pi * 2000 * t))
+
+    Ein Ton ergibt ohne Korrektur einen Kreis; mit passender Korrektur
+    einen Punkt. Mit symbol_ms wird die Mitte jedes Symbols rot markiert.
+    """
+    rate = _rate(rate)
+    z = np.asarray(signal)
+    if not np.iscomplexobj(z):
+        z = iq(z)
+    t_ms = np.arange(len(z)) * 1000 / rate
+    step = max(1, len(z) // 20000)  # höchstens ~20000 Punkte zeichnen
+
+    fig, ax = plt.subplots(figsize=(6.5, 5.5))
+    points = ax.scatter(z.real[::step], z.imag[::step], c=t_ms[::step], s=2, cmap="viridis")
+    fig.colorbar(points, ax=ax, label="Zeit [ms]")
+
+    if symbol_ms:
+        centers = np.arange(symbol_ms / 2, t_ms[-1], symbol_ms)
+        idx = np.round(centers * rate / 1000).astype(int)
+        ax.plot(z.real[idx], z.imag[idx], "o", markersize=9, markerfacecolor="none",
+                markeredgecolor="crimson", markeredgewidth=2, label="Symbolmitte")
+        ax.legend(loc="upper right")
+
+    limit = 1.1 * max(np.abs(z).max() if len(z) else 0, 1e-3)
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.set_aspect("equal")
+    ax.axhline(0, color="gray", linewidth=0.8)
+    ax.axvline(0, color="gray", linewidth=0.8)
+    ax.set_xlabel("I (Realteil)")
+    ax.set_ylabel("Q (Imaginärteil)")
+    ax.set_title(title or "IQ-Diagramm")
+    ax.grid(alpha=0.3)
     fig.tight_layout()
     plt.show()
 

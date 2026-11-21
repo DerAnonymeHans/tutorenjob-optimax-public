@@ -86,3 +86,8 @@ und dann `send` aufrufen.
 Der Ordner `client/` wird an die Schüler weitergegeben: `audio.py` (Senden, Empfangen,
 Plotten), `requirements.txt` (numpy, scipy, matplotlib, Jupyter) und eine kurze
 Anleitung in `client/README.md`. `python audio.py` macht einen Verbindungstest.
+
+## Musterlösungen (`loesungen/`)
+
+Nicht an die Schüler weitergeben. `Woche_1_Senden_Loesung.ipynb` ist die ausgefüllte
+Fassung von `client/Woche_1_Senden.ipynb` (mit Ausgaben aus dem Simulationsmodus).
