@@ -49,6 +49,9 @@ Im Terminal und im Fenstertitel steht die Adresse für die Schüler, z.B.
 
 - **Dauer**, **f min / f max** und **dB min / dB max** (Farbskala) sind oben einstellbar
   (Enter oder Pfeile übernehmen den Wert).
+- **Lautsprecher** (zweite Zeile) wechselt das Ausgabegerät im laufenden Betrieb; eine
+  gerade laufende Sendung spielt auf dem neuen Gerät weiter. Lässt sich das Gerät nicht
+  öffnen (z.B. andere Abtastrate), bleibt das alte aktiv. Im `--simulate`-Modus ausgeblendet.
 - **Pause** friert das Bild ein. Mit der Lupe in der Werkzeugleiste unten kann man dann
   hineinzoomen, mit dem Haus zurück.
 - Balken oben im Bild: **blau** = hier wurde gesendet, **orange** = hier hat jemand empfangen.

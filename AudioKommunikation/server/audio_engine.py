@@ -93,7 +93,8 @@ class AudioEngine:
         self._markers: collections.deque[Marker] = collections.deque(maxlen=200)
         self._markers_lock = threading.Lock()
 
-        self._streams = []
+        self._in_stream = None
+        self._out_stream = None
         self._sim_thread = None
         self._running = False
         self.output_latency = 0.0
@@ -109,12 +110,47 @@ class AudioEngine:
 
         import sounddevice as sd
 
-        in_stream = self._open_stream(sd, "input", self.input_device, self._input_callback)
-        out_stream = self._open_stream(sd, "output", self.output_device, self._output_callback)
-        self.output_latency = float(out_stream.latency)
-        self._streams = [in_stream, out_stream]
-        for s in self._streams:
-            s.start()
+        self._in_stream = self._open_stream(sd, "input", self.input_device, self._input_callback)
+        self._out_stream = self._open_stream(sd, "output", self.output_device,
+                                             self._output_callback)
+        self.output_latency = float(self._out_stream.latency)
+        self._in_stream.start()
+        self._out_stream.start()
+
+    def output_devices(self) -> list[tuple[int, str]]:
+        """Alle Ausgabegeräte als (Nummer, Anzeigename)."""
+        if self.simulate:
+            return []
+        import sounddevice as sd
+        apis = sd.query_hostapis()
+        return [(d["index"], f"{d['index']}: {d['name']} ({apis[d['hostapi']]['name']})")
+                for d in sd.query_devices() if d["max_output_channels"] > 0]
+
+    def current_output_device(self) -> int | None:
+        """Nummer des gerade benutzten Ausgabegeräts."""
+        if self.simulate or self._out_stream is None:
+            return None
+        return int(self._out_stream.device)
+
+    def set_output_device(self, device) -> None:
+        """Wechselt den Lautsprecher im laufenden Betrieb. Zuerst wird das neue Gerät
+        geöffnet – klappt das nicht, bleibt das alte aktiv (RuntimeError)."""
+        if self.simulate:
+            return
+        import sounddevice as sd
+        new_stream = self._open_stream(sd, "output", device, self._output_callback)
+        try:
+            new_stream.start()
+        except Exception as e:  # noqa: BLE001
+            new_stream.close()
+            raise RuntimeError(f"Lautsprecher ({device}) lässt sich nicht starten: {e}") from None
+        old_stream, self._out_stream = self._out_stream, new_stream
+        self.output_device = device
+        self.output_latency = float(new_stream.latency)
+        if old_stream is not None:
+            # Eine laufende Sendung spielt einfach auf dem neuen Gerät weiter
+            old_stream.abort()
+            old_stream.close()
 
     def _open_stream(self, sd, kind: str, device, callback):
         try:
@@ -132,10 +168,11 @@ class AudioEngine:
 
     def stop(self) -> None:
         self._running = False
-        for s in self._streams:
-            s.stop()
-            s.close()
-        self._streams = []
+        for s in (self._in_stream, self._out_stream):
+            if s is not None:
+                s.stop()
+                s.close()
+        self._in_stream = self._out_stream = None
 
     # ------------------------------------------------------------------ Callbacks
 

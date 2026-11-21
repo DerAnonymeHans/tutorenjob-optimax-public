@@ -10,7 +10,7 @@ from __future__ import annotations
 import queue
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -78,6 +78,7 @@ class SpectrogramWindow:
         self.root.title(title)
         self.root.geometry("1100x700")
         self._build_controls()
+        self._build_device_bar()
         self._build_plot()
         self._build_log()
         self.root.after(REFRESH_MS, self._tick)
@@ -116,6 +117,39 @@ class SpectrogramWindow:
                         command=self.redraw).pack(side=tk.LEFT, padx=(12, 0))
         ttk.Checkbutton(bar, text="Markierungen (blau = senden, orange = empfangen)", variable=self.show_markers,
                         command=self.redraw).pack(side=tk.LEFT, padx=12)
+
+    def _build_device_bar(self) -> None:
+        """Zweite Zeile: Auswahl des Lautsprechers (nicht im Simulationsmodus)."""
+        devices = self.engine.output_devices()
+        if not devices:
+            return
+        bar = ttk.Frame(self.root, padding=(6, 0, 6, 6))
+        bar.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(bar, text="Lautsprecher").pack(side=tk.LEFT, padx=(0, 4))
+
+        self.output_ids = [i for i, _ in devices]
+        self.output_box = ttk.Combobox(bar, values=[name for _, name in devices],
+                                       state="readonly", width=70)
+        current = self.engine.current_output_device()
+        if current in self.output_ids:
+            self.output_box.current(self.output_ids.index(current))
+        self.output_box.bind("<<ComboboxSelected>>", self._on_output_selected)
+        self.output_box.pack(side=tk.LEFT)
+
+    def _on_output_selected(self, _event=None) -> None:
+        device = self.output_ids[self.output_box.current()]
+        if device == self.engine.current_output_device():
+            return
+        try:
+            self.engine.set_output_device(device)
+        except RuntimeError as e:
+            messagebox.showerror("Lautsprecher", str(e), parent=self.root)
+            current = self.engine.current_output_device()
+            if current in self.output_ids:
+                self.output_box.current(self.output_ids.index(current))
+            return
+        self.activity.put(f"{time.strftime('%H:%M:%S')}  Lautsprecher: "
+                          f"{self.output_box.get()}")
 
     def _build_plot(self) -> None:
         self.fig = Figure(figsize=(10, 5), dpi=100)
